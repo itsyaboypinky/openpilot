@@ -64,28 +64,28 @@ class StoppingController:
   CREEP_RATE_GROWTH = 1.5  # m/s^2/s
   CREEP_RATE_MAX = 1.0  # m/s^2/s
 
-  BLEND_V = 10.0 / 3.6  # m/s
+  BLEND_V = 10.0 / 3.6  # m/s:
   END_V_HI = 5.0 / 3.6  # m/s
   END_HI = -0.65  # m/s^2
   END_LO = -0.35  # m/s^2
-
   END_CURVE_V = [0.0, 1.0 / 3.6, 2.0 / 3.6, 3.0 / 3.6, 4.0 / 3.6, 5.0 / 3.6]  # m/s
-  END_CURVE_A = [END_LO, END_LO, -0.56, -0.60, -0.65, END_HI]  # m/s^2
+  END_CURVE_A = [END_LO, (END_LO + -0.56) / 2, -0.56, -0.60, -0.65, END_HI]  # m/s^2
   END_PLAN_MIN = -0.25  # m/s^2
   END_RATE = 2.0  # m/s^3
+  END_CAP_RATE = 1.0  # m/s^3
 
   RELEASE_FAST = 4.0  # m/s^3
   RELEASE_SLOW = 1.5  # m/s^3
   RELEASE_BAND_LO = -0.6  # m/s^2
   RELEASE_BAND_HI = 0.4  # m/s^2
 
+  LAUNCH_RATE = 1.0  # m/s^3
   REROLL_ACCEL = -0.6  # m/s^2
   REROLL_JERK = 6.0  # m/s^3
 
   FLAT_HOLD_ACCEL = -1.2  # m/s^2
   FLAT_PITCH_DEG = 1.0  # deg
   SLOPE_PITCH_DEG = 2.0  # deg
-
   CF_WINDOW = 10.0  # s
   CF_V_MAX = 8.0 / 3.6  # m/s
   CF_TRIGGER = -0.15  # m/s^2
@@ -120,8 +120,11 @@ class StoppingController:
       return float(np.interp(max(v_ego, 0.0), self.END_CURVE_V, self.END_CURVE_A))
     return float(np.interp(v_ego, [self.END_V_HI, self.BLEND_V], [self.END_HI, self.a_entry]))
 
-  def _end_request(self, a_target, prev_accel, v_ego):
-    target = min(a_target, self._blend(v_ego))  # the firmer of the plan and the line
+  def _end_request(self, a_target, prev_accel, v_ego, has_lead=True):
+    line = self._blend(v_ego)
+    target = min(a_target, line)  # the firmer of the plan and the line
+    if not has_lead and v_ego < self.END_V_HI and target < line:
+      return float(min(line, prev_accel + self.END_CAP_RATE * DT_CTRL))
     step = self.END_RATE * DT_CTRL
     return float(np.clip(target, prev_accel - step, prev_accel + step))
 
@@ -194,14 +197,19 @@ class StoppingController:
       if cf_stop:
         return state, float(np.clip(self._cf_request(a_target, prev_accel), accel_limits[0], accel_limits[1]))
       if self.end_active:
-        return state, float(np.clip(self._end_request(a_target, prev_accel, CS.vEgo), accel_limits[0], accel_limits[1]))
+        return state, float(np.clip(self._end_request(a_target, prev_accel, CS.vEgo, has_lead), accel_limits[0], accel_limits[1]))
       if prev_state == LongCtrlState.stopping and state == LongCtrlState.pid and prev_accel < self.RELEASE_BAND_HI:
         self.releasing = True
       if self.releasing:
-        if stock_accel <= prev_accel or prev_accel >= self.RELEASE_BAND_HI or state == LongCtrlState.off:
+        if stock_accel <= prev_accel or state == LongCtrlState.off:
           self.releasing = False
           return state, stock_accel
-        rate = self.RELEASE_FAST if prev_accel < self.RELEASE_BAND_LO else self.RELEASE_SLOW
+        if prev_accel < self.RELEASE_BAND_LO:
+          rate = self.RELEASE_FAST
+        elif prev_accel < self.RELEASE_BAND_HI:
+          rate = self.RELEASE_SLOW
+        else:
+          rate = self.LAUNCH_RATE
         return state, float(min(stock_accel, prev_accel + rate * DT_CTRL))
       return state, stock_accel
 
@@ -214,7 +222,7 @@ class StoppingController:
       if cf_stop:
         output_accel = self._cf_request(a_target, prev_accel)
       elif self.end_active:
-        output_accel = self._end_request(a_target, prev_accel, CS.vEgo)
+        output_accel = self._end_request(a_target, prev_accel, CS.vEgo, has_lead)
 
       hold_delay = self.STANDSTILL_HOLD_DELAY_LEAD if has_lead else self.STANDSTILL_HOLD_DELAY_NO_LEAD
       if CS.standstill and not has_lead and self.engaged_t < self.ENGAGE_STANDSTILL_GRACE:
