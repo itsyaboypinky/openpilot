@@ -39,14 +39,14 @@ class DRIVER_MONITOR_SETTINGS:
     self._NO_RESPONSE_TIMEOUT = 5.
 
     # lockout specs
-    self._MAX_ALERT_3 = 2
-    self._MAX_NO_RESPONSE = 1
+    self._MAX_ALERT_3 = 10
+    self._MAX_NO_RESPONSE = 3
     self._LOCKOUT_TIMES = [int(60 * n_min / DT_DMON) for n_min in [1, 5, 15, 30]]
 
     self._TIMEOUT_RECOVERY_FACTOR_MAX = 5.
     self._TIMEOUT_RECOVERY_FACTOR_MIN = 1.25
 
-    self._FACE_THRESHOLD = 2.0
+    self._FACE_THRESHOLD = 0.7
     self._EYE_THRESHOLD = 0.65
     self._SG_THRESHOLD = 0.9
     self._BLINK_THRESHOLD = 0.865
